@@ -1,0 +1,76 @@
+#!/usr/bin/perl -w
+#
+# Force PHP options to all users on EasyApache4
+# macklus@debianitas.net
+#
+
+use strict;
+use warnings;
+
+my %CONF;
+my %PHP;
+my @userdata;
+my $ZZ_DATA = '';
+
+# Detect if we are running EasyApache 4
+exit 1 if( ! -l '/usr/local/apache/logs' || readlink '/usr/local/apache/logs' ne '/etc/apache2/logs' );
+
+# Detect config file
+if( -e '/etc/apache2/cpanel-ea4-force-php-opts.conf' ) {
+    open(C, "</etc/apache2/cpanel-ea4-force-php-opts.conf") or die "[ERROR]: Cannt read /etc/apache2/cpanel-ea4-force-php-opts.conf!\n";
+    while( <C> ) {
+        chomp;
+        next if( /^#/ );
+        if( /FORCE_PHP (.*) = (.*)/ ) {
+            $PHP{$1} = $2;
+        } elsif( /(.*)=(.*)/ ) {
+            $CONF{$1} = $2;
+        }
+    }
+}
+
+
+while( @userdata = getpwent() ) {
+    my $user = $userdata[0];
+    my $uid  = $userdata[2];
+    my $gid  = $userdata[3];
+    my $home = $userdata[7];
+
+    # Avoid user if is in exclude_users
+    next if ( defined($CONF{'exclude_users'}) && grep( /^$user$/, split(/,/, $CONF{'exclude_users'}) ) );
+
+    # Detect if is a cpanel account
+    next if( ! -e "/var/cpanel/users/$user" );
+
+    # Create tmpdir
+    if( ! -d "$home/tmp/php" && defined($CONF{'create_tmpphp'}) && $CONF{'create_tmpphp'} eq 'yes' ) {
+        mkdir "$home/tmp/php", 0755;
+        chown $uid, $gid, "$home/tmp/php";
+    }
+
+    # Generate config
+    $ZZ_DATA .= "[PATH=$home]\n";
+    foreach my $k (sort(keys %PHP)) {
+        my $v = $PHP{$k};
+        $v =~ s/__HOME__/$home/ig;
+        $v =~ s/__USER__/$user/ig;
+        $v =~ s/__UID__/$uid/ig;
+        $v =~ s/__GID__/$gid/ig;
+        $ZZ_DATA .= "$k = $v\n";
+    }
+    $ZZ_DATA .= "\n";
+}
+
+# Print config
+open(CF, ">/etc/apache2/conf.d/ZZ_force_system_config.ini" ) or die "[ERROR]: Cannt write on /etc/apache2/conf.d/ZZ_force_system_config.ini!\n";
+print CF "$ZZ_DATA";
+close( CF );
+
+# Link files
+foreach( '54', '55', '56', '70' ) {
+    if( -d "/opt/cpanel/ea-php$_/root/etc/php.d/" ) {
+        if( ! -l "/opt/cpanel/ea-php$_/root/etc/php.d/ZZ_force_system_config.ini" ) {
+            symlink '/etc/apache2/conf.d/ZZ_force_system_config.ini', "/opt/cpanel/ea-php$_/root/etc/php.d/ZZ_force_system_config.ini";
+        }
+    }
+}
