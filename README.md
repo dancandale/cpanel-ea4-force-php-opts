@@ -2,6 +2,12 @@
 
 Cpanel hook to force php options that users cant override
 
+### Requirements
+
+Requirements are:
+* EasyApache4 working on your server
+* SuPHP as PHP handler
+
 ### Usage
 
 **Install:**
